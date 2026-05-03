@@ -1,0 +1,25 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables
+.env
+
+# SQLite database (optional if you don’t want to commit it)
+*.db
+
+# Logs
+*.log
+
+# IDE settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# macOS files
+.DS_Store
+
+# Other
+*.pyc
