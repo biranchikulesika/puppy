@@ -33,20 +33,25 @@ puppy/
 
 ## Setup
 
-1. Create a virtual environment (optional but recommended).
-2. Install dependencies:
+1. Clone the repo
+```
+git clone https://github.com/biranchikulesika/puppy
+cd puppy
+```
+2. Create a virtual environment (optional but recommended).
+3. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Create your `.env` file:
+4. Create your `.env` file:
 
 ```bash
 cp .env.example .env
 ```
 
-4. Fill in the required values (see the configuration reference below).
+5. Fill in the required values (see the configuration reference below).
 
 ## Configuration Reference (`.env`)
 
