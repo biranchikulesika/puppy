@@ -1,320 +1,176 @@
 # Puppy
 
-Puppy is a resilient result-scraping and data collection pipeline built to discover roll numbers, fetch student result data, normalize it into a relational database, and resume safely after interruptions.
+Puppy is a resilient result-scraping and data collection pipeline. It discovers roll numbers through a paginated name search, fetches student result pages, and normalizes the data into a relational SQLite database with resume-safe progress tracking.
 
-It was designed for large-scale scraping where reliability matters more than elegance, because public result portals are often held together by ancient HTML and administrative optimism.
+## Features
 
-# Features
-
-- Crawl roll numbers by paginated name search
-- Auto-fill small roll number gaps intelligently
-- Fetch full student result data
-- Normalize subject/marks into relational schema
-- Auto-discover subjects at runtime
-- Resume after interruption/crash
-- Track fetch status per roll number
-- Store raw HTML for audit/debugging
+- Crawl roll numbers by paginated search
+- Optional gap-filling for near-continuous roll ranges
+- Fetch full student result data with retries and jitter
+- Normalize subjects/marks into relational schema
+- Persist raw HTML for audit/debugging
+- Resume safely after interruptions
 - Configurable via `.env`
-- SQLite by default, extensible to other DBs
+- SQLite by default, designed for extension
 
-# Project Structure
+## Repository Layout
 
 ```text
 puppy/
-│
-├── pup.py
-├── schema.sql
-├── .env
-├── .env.example
+├── pup.py             # full pipeline: collect, gap fill, fetch
+├── supup.py           # high-throughput fetcher (multi-threaded)
+├── undo_gap_fill.py   # remove gap-filled roll numbers
+├── schema.sql         # database schema
+├── sql_command.md     # operational SQL queries
 ├── requirements.txt
-└── puppy.db
-````
-
-# Installation
-
-## 1. Clone Repository
-
-```bash
-git clone <repo-url>
-cd puppy
+├── .env.example
+└── README.md
 ```
 
-## 2. Create Virtual Environment
+## Prerequisites
 
-```bash
-python -m venv venv
-```
+- Python 3 + pip
 
-Activate:
+## Setup
 
-### Windows
-
-```bash
-venv\Scripts\activate
-```
-
-### Linux / Mac
-
-```bash
-source venv/bin/activate
-```
-
-## 3. Install Dependencies
+1. Create a virtual environment (optional but recommended).
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-# Configuration
-
-Create `.env` from `.env.example`.
+3. Create your `.env` file:
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in actual values.
+4. Fill in the required values (see the configuration reference below).
 
-# Database Setup
+## Configuration Reference (`.env`)
 
-Database is auto-created on first run.
+### Required
+
+| Variable | Purpose |
+| --- | --- |
+| `SEARCH_URL` | URL for the roll-number search page |
+| `RESULT_URL` | URL for the result page (POST by roll number) |
+| `USER_AGENT` | User-Agent header for requests |
+| `INPUT_SELECTOR` | Form field name used for the search letter |
+| `HIDDEN_SELECTOR` | CSS selector for hidden fields used in pagination postbacks |
+| `PAGINATION_SELECTOR` | CSS selector for the pagination container |
+| `ROLL_REGEX` | Regex used to extract roll numbers from HTML |
+
+### Optional
+
+| Variable | Default | Used By | Purpose |
+| --- | --- | --- | --- |
+| `DB_PATH` | `puppy.db` | `pup.py`, `supup.py` | SQLite database file |
+| `SQL_FILE` | `schema.sql` | `pup.py`, `supup.py` | Schema file used on startup |
+| `REQUEST_TIMEOUT` | `30` | both | HTTP timeout in seconds |
+| `MIN_DELAY` | `1.0` (`pup.py`) / `0` (`supup.py`) | both | Min jitter delay between requests |
+| `MAX_DELAY` | `2.0` (`pup.py`) / `0.05` (`supup.py`) | both | Max jitter delay between requests |
+| `MAX_RETRIES` | `3` | both | HTTP retry count |
+| `WORKER_COUNT` | `20` | `supup.py` | Worker thread count |
+| `BATCH_SIZE` | `100` | `supup.py` | Commit frequency for writer thread |
+| `QUEUE_SIZE` | `1000` | `supup.py` | Queue size for workers/results |
+
+> Note: `.env.example` includes `DB_TYPE`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME`, but the current codebase does not read those values yet, so they can be left blank.
+
+## Usage (Manual)
+
+### 1) Run the full pipeline
 
 ```bash
 python pup.py
 ```
 
-This will create:
+Menu options:
 
-```text
-puppy.db
 ```
-
-using schema from:
-
-```text
-schema.sql
-```
-
-# Usage
-
-Run:
-
-```bash
-python pup.py
-```
-
-Menu:
-
-```text
 1. Collect Roll Numbers
 2. Auto Fill Missing Roll Numbers
 3. Fetch Student Data
 4. Exit
 ```
 
-# Workflow
+#### Step 1 — Collect Roll Numbers
 
-## Step 1: Collect Roll Numbers
+- Crawls search results for each letter `a`–`z`.
+- Uses `crawl_progress` to resume from the last page per letter.
 
-Runs paginated search crawl.
+#### Step 2 — Auto Fill Missing Roll Numbers (Optional)
 
-Stores discovered roll numbers in:
+- Fills small gaps in roll sequences per region.
+- Default `max_gap_to_fill` is `5` (edit in `pup.py` if needed).
+- Every inserted roll is logged to `roll_fix_log`.
 
-```text
-roll_numbers
-```
+#### Step 3 — Fetch Student Data
 
-## Step 2: Auto Fill Missing Roll Numbers (Optional)
+- Fetches all rolls where `fetch_status != 'fetched'`.
+- Stores parsed data in `students`, `subjects`, and `student_subject_marks`.
+- Stores raw HTML in `students.raw_html`.
 
-Fills small gaps in sequential roll ranges.
+### 2) High-throughput fetch only (large queues)
 
-Useful when:
-
-* portal search misses some rolls
-* numbering is mostly continuous
-
-Configured by:
-
-```python
-max_gap_to_fill
-```
-
-in code.
-
-## Step 3: Fetch Student Data
-
-Fetches full result page for every pending roll.
-
-Stores:
-
-* personal details
-* final result
-* subject marks
-* raw HTML
-
-# Database Schema
-
-## roll_numbers
-
-Master queue of discovered/generated roll numbers.
-
-| Column         | Description                  |
-| -------------- | ---------------------------- |
-| roll_no        | Full roll number             |
-| region_code    | Region/prefix code           |
-| student_seq_no | Numeric sequence             |
-| source         | search / gap_fill / migrated |
-| fetch_status   | pending / fetched / failed   |
-| discovered_at  | Discovery timestamp          |
-| last_attempt   | Last fetch attempt           |
-
-## roll_fix_log
-
-Audit log of gap-filled roll numbers.
-
-| Column             | Description        |
-| ------------------ | ------------------ |
-| roll_no            | Added roll         |
-| region_code        | Region code        |
-| gap_threshold_used | Gap threshold used |
-| added_at           | Timestamp          |
-
-## crawl_progress
-
-Tracks crawl resume state.
-
-| Column | Description           |
-| ------ | --------------------- |
-| key    | Progress key          |
-| value  | Stored progress value |
-
-## students
-
-Stores student result summary.
-
-| Column         | Description       |
-| -------------- | ----------------- |
-| roll_no        | Primary key       |
-| candidate_name | Student name      |
-| father_name    | Father name       |
-| mother_name    | Mother name       |
-| dob            | Date of birth     |
-| school_name    | School name       |
-| grand_total    | Total marks       |
-| grade          | Final grade       |
-| fetched_at     | Fetch timestamp   |
-| raw_html       | Raw HTML response |
-
-## subjects
-
-Canonical subject catalog.
-
-| Column       | Description   |
-| ------------ | ------------- |
-| subject_code | Subject code  |
-| subject_name | Subject name  |
-| max_marks    | Maximum marks |
-
-## student_subject_marks
-
-Per-student marks.
-
-| Column        | Description    |
-| ------------- | -------------- |
-| id            | PK             |
-| roll_no       | Student roll   |
-| subject_code  | Subject code   |
-| marks_secured | Obtained marks |
-
-# Useful SQL Queries
-
-## Count Fetched Students
-
-```sql
-SELECT COUNT(*) FROM students;
-```
-
-## Fetch Progress Overview
-
-```sql
-SELECT
-    COUNT(*) AS total_rolls,
-    SUM(CASE WHEN fetch_status='fetched' THEN 1 ELSE 0 END) AS fetched,
-    SUM(CASE WHEN fetch_status='failed' THEN 1 ELSE 0 END) AS failed,
-    SUM(CASE WHEN fetch_status='pending' OR fetch_status IS NULL THEN 1 ELSE 0 END) AS pending
-FROM roll_numbers;
-```
-
-## Verify Grand Total Matches Subject Sum
-
-```sql
-SELECT
-    s.roll_no,
-    s.grand_total,
-    SUM(ssm.marks_secured) AS calculated_total
-FROM students s
-JOIN student_subject_marks ssm
-    ON s.roll_no = ssm.roll_no
-GROUP BY s.roll_no;
-```
-
-## View Student Data
-
-```sql
-SELECT
-    roll_no,
-    candidate_name,
-    father_name,
-    mother_name,
-    dob,
-    school_name,
-    grand_total,
-    grade
-FROM students;
-```
-
-# Recovery / Resume
-
-Puppy is crash-safe.
-
-If interrupted:
+If you already collected roll numbers and only need fast fetching:
 
 ```bash
-Ctrl + C
+python supup.py
 ```
 
-Simply rerun:
+This script:
+
+- Spawns multiple worker threads (`WORKER_COUNT`).
+- Writes results in batches (`BATCH_SIZE`).
+- Uses low jitter defaults to increase throughput.
+
+Stop safely with `Ctrl+C`; pending rolls remain in `pending/failed` and can be retried later.
+
+### 3) Undo gap-filled rolls
 
 ```bash
-python pup.py
+python undo_gap_fill.py
 ```
 
-It resumes automatically using:
+This removes roll numbers inserted by the gap-filler and clears `roll_fix_log`.
 
-* `crawl_progress`
-* `fetch_status`
+## Database Overview
 
-# Backup Recommendation
+Core tables:
 
-During long scraping runs:
+- `roll_numbers` — master queue with `fetch_status`
+- `roll_fix_log` — audit log for gap-filled rolls
+- `crawl_progress` — resume state for search crawl
+- `students` — student summary + raw HTML
+- `subjects` — subject catalog
+- `student_subject_marks` — per-student marks
+
+See `schema.sql` for full definitions.
+
+## Operational SQL
+
+`sql_command.md` contains ready-to-run queries for:
+
+- progress monitoring
+- data integrity checks
+- analytics
+- maintenance tasks
+
+## Recovery / Resume
+
+- Safe to interrupt with `Ctrl+C`.
+- Re-running `pup.py` or `supup.py` resumes from stored state (`crawl_progress` and `fetch_status`).
+
+## Backup Recommendation
+
+During long runs:
 
 ```bash
 cp puppy.db puppy_backup_YYYYMMDD_HHMMSS.db
 ```
 
-Take periodic backups.
-
-Because databases corrupt, disks fail, power dies, and suffering is evergreen.
-
-# Notes
-
-* Subject catalog auto-populates at runtime.
-* Raw HTML is stored for every fetched student for audit/debugging.
-* Failed rows remain marked failed and can be retried later.
-* SQLite performs well for moderate datasets, but large-scale use may justify PostgreSQL/MySQL migration.
-
-
-
-# Disclaimer
+## Disclaimer
 
 Use responsibly and ensure your data collection complies with applicable laws, website terms, and ethical considerations.
