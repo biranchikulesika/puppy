@@ -76,7 +76,7 @@ cp .env.example .env
 | `BATCH_SIZE` | `100` | `supup.py` | Commit frequency for writer thread |
 | `QUEUE_SIZE` | `1000` | `supup.py` | Queue size for workers/results |
 
-> Note: `.env.example` includes `DB_TYPE`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME`, but the current codebase does not read those values yet.
+> Note: `.env.example` includes `DB_TYPE`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME`, but the current codebase does not read those values yet, so they can be left blank.
 
 ## Usage (Manual)
 
