@@ -82,7 +82,6 @@ def create_session():
 
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-
     session.headers.update({"User-Agent": USER_AGENT})
 
     return session
@@ -100,12 +99,10 @@ def parse_result_page(soup):
     }
 
     rows = soup.select("table.table-condensed tr")
-
     section = None
 
     for row in rows:
         cells = [td.get_text(" ", strip=True) for td in row.find_all("td")]
-
         if not cells:
             continue
 
@@ -114,11 +111,9 @@ def parse_result_page(soup):
         if "personal details" in row_text:
             section = "personal"
             continue
-
         elif "marks awarded" in row_text:
             section = "marks"
             continue
-
         elif "final result" in row_text:
             section = "final"
             continue
@@ -146,7 +141,7 @@ def parse_result_page(soup):
                 try:
                     max_marks = int(re.search(r"\d+", cells[2]).group())
                     marks_secured = int(re.search(r"\d+", cells[3]).group())
-                except:
+                except Exception:
                     continue
 
                 data["subjects"].append(
@@ -164,14 +159,12 @@ def parse_result_page(soup):
             grand_total_match = re.search(
                 r"grand\s*total.*?(\d+)", joined, re.IGNORECASE
             )
-
             if grand_total_match:
                 data["grand_total"] = int(grand_total_match.group(1))
 
             grade_match = re.search(
                 r"result\s*grade.*?([A-Z][0-9]?)", joined, re.IGNORECASE
             )
-
             if grade_match:
                 data["grade"] = grade_match.group(1)
 
@@ -217,7 +210,11 @@ def worker_thread(worker_id, work_queue, result_queue):
 
             if not parsed["personal"]:
                 result_queue.put(
-                    {"roll_no": roll_no, "status": "failed", "reason": "invalid_result"}
+                    {
+                        "roll_no": roll_no,
+                        "status": "failed",
+                        "reason": "invalid_result",
+                    }
                 )
             else:
                 result_queue.put(
@@ -230,7 +227,13 @@ def worker_thread(worker_id, work_queue, result_queue):
                 )
 
         except Exception as e:
-            result_queue.put({"roll_no": roll_no, "status": "failed", "reason": str(e)})
+            result_queue.put(
+                {
+                    "roll_no": roll_no,
+                    "status": "failed",
+                    "reason": str(e),
+                }
+            )
 
         finally:
             work_queue.task_done()
@@ -248,114 +251,119 @@ def writer_thread(result_queue):
     fetched_count = 0
     failed_count = 0
 
-    while not shutdown_event.is_set() or not result_queue.empty():
-        try:
-            item = result_queue.get(timeout=1)
-        except queue.Empty:
-            continue
+    try:
+        while True:
+            try:
+                item = result_queue.get(timeout=1)
+            except queue.Empty:
+                if shutdown_event.is_set():
+                    break
+                continue
 
-        roll_no = item["roll_no"]
-        now = time.strftime("%Y-%m-%d %H:%M:%S")
+            if item is None:
+                result_queue.task_done()
+                break
 
-        try:
-            if item["status"] == "fetched":
-                parsed = item["parsed"]
-                personal = parsed["personal"]
+            roll_no = item["roll_no"]
+            now = time.strftime("%Y-%m-%d %H:%M:%S")
 
-                cur.execute(
-                    """
-                    INSERT OR REPLACE INTO students(
-                        roll_no,
-                        candidate_name,
-                        father_name,
-                        mother_name,
-                        dob,
-                        school_name,
-                        grand_total,
-                        grade,
-                        raw_html
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        roll_no,
-                        personal.get("candidate_name"),
-                        personal.get("father_name"),
-                        personal.get("mother_name"),
-                        personal.get("dob"),
-                        personal.get("school_name"),
-                        parsed.get("grand_total"),
-                        parsed.get("grade"),
-                        item["html"],
-                    ),
-                )
-
-                cur.execute(
-                    "DELETE FROM student_subject_marks WHERE roll_no=?", (roll_no,)
-                )
-
-                for mark in parsed["subjects"]:
-                    cur.execute(
-                        """
-                        INSERT OR IGNORE INTO subjects(
-                            subject_code,
-                            subject_name,
-                            max_marks
-                        ) VALUES (?, ?, ?)
-                    """,
-                        (mark["subject_code"], mark["subject_name"], mark["max_marks"]),
-                    )
+            try:
+                if item["status"] == "fetched":
+                    parsed = item["parsed"]
+                    personal = parsed["personal"]
 
                     cur.execute(
                         """
-                        INSERT INTO student_subject_marks(
+                        INSERT OR REPLACE INTO students(
+                            roll_no, candidate_name, father_name,
+                            mother_name, dob, school_name,
+                            grand_total, grade, raw_html
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
                             roll_no,
-                            subject_code,
-                            marks_secured
-                        ) VALUES (?, ?, ?)
-                    """,
-                        (roll_no, mark["subject_code"], mark["marks_secured"]),
+                            personal.get("candidate_name"),
+                            personal.get("father_name"),
+                            personal.get("mother_name"),
+                            personal.get("dob"),
+                            personal.get("school_name"),
+                            parsed.get("grand_total"),
+                            parsed.get("grade"),
+                            item["html"],
+                        ),
                     )
 
-                cur.execute(
-                    """
-                    UPDATE roll_numbers
-                    SET fetch_status='fetched',
-                        last_attempt=?
-                    WHERE roll_no=?
-                """,
-                    (now, roll_no),
-                )
+                    cur.execute(
+                        "DELETE FROM student_subject_marks WHERE roll_no=?",
+                        (roll_no,),
+                    )
 
-                fetched_count += 1
+                    for mark in parsed["subjects"]:
+                        cur.execute(
+                            """
+                            INSERT OR IGNORE INTO subjects(
+                                subject_code, subject_name, max_marks
+                            ) VALUES (?, ?, ?)
+                            """,
+                            (
+                                mark["subject_code"],
+                                mark["subject_name"],
+                                mark["max_marks"],
+                            ),
+                        )
+                        cur.execute(
+                            """
+                            INSERT INTO student_subject_marks(
+                                roll_no, subject_code, marks_secured
+                            ) VALUES (?, ?, ?)
+                            """,
+                            (roll_no, mark["subject_code"], mark["marks_secured"]),
+                        )
 
-            else:
-                cur.execute(
-                    """
-                    UPDATE roll_numbers
-                    SET fetch_status='failed',
-                        last_attempt=?
-                    WHERE roll_no=?
-                """,
-                    (now, roll_no),
-                )
+                    cur.execute(
+                        """
+                        UPDATE roll_numbers
+                        SET fetch_status='fetched', last_attempt=?
+                        WHERE roll_no=?
+                        """,
+                        (now, roll_no),
+                    )
+                    fetched_count += 1
 
-                failed_count += 1
+                else:
+                    cur.execute(
+                        """
+                        UPDATE roll_numbers
+                        SET fetch_status='failed', last_attempt=?
+                        WHERE roll_no=?
+                        """,
+                        (now, roll_no),
+                    )
+                    failed_count += 1
 
-            processed += 1
+                processed += 1
 
-            if processed % BATCH_SIZE == 0:
-                conn.commit()
-                print(
-                    f"[Writer] Processed={processed} "
-                    f"Fetched={fetched_count} "
-                    f"Failed={failed_count}"
-                )
+                if processed % BATCH_SIZE == 0:
+                    conn.commit()
+                    print(
+                        f"[Writer] Processed={processed} "
+                        f"Fetched={fetched_count} "
+                        f"Failed={failed_count}"
+                    )
 
-        finally:
-            result_queue.task_done()
+            finally:
 
-    conn.commit()
-    conn.close()
+                result_queue.task_done()
+
+    finally:
+
+        conn.commit()
+        conn.close()
+        print(
+            f"[Writer] Done. Processed={processed} "
+            f"Fetched={fetched_count} "
+            f"Failed={failed_count}"
+        )
 
 
 # =========================================================
@@ -392,9 +400,7 @@ def pup_part2():
         for idx, (roll_no,) in enumerate(rows, 1):
             if shutdown_event.is_set():
                 break
-
             work_queue.put(roll_no)
-
             if idx % 1000 == 0:
                 print(f"[Main] Queued {idx}/{total}")
 
@@ -402,47 +408,65 @@ def pup_part2():
             work_queue.put(None)
 
         work_queue.join()
+
+        result_queue.put(None)
         result_queue.join()
 
     except KeyboardInterrupt:
-        print("\nGraceful shutdown requested...")
-        shutdown_event.set()
+
+        pass
 
     finally:
         shutdown_event.set()
 
+        for _ in workers:
+            try:
+                work_queue.put_nowait(None)
+            except queue.Full:
+                pass
+
         for t in workers:
             t.join(timeout=5)
+
+        try:
+            result_queue.put_nowait(None)
+        except queue.Full:
+            pass
 
         writer.join(timeout=10)
 
 
 # =========================================================
-# SIGNAL HANDLER
+# SIGNAL HANDLER  (FIX 1)
 # =========================================================
 def signal_handler(sig, frame):
+
     print("\nInterrupt received. Shutting down safely...")
     shutdown_event.set()
 
-
-signal.signal(signal.SIGINT, signal_handler)
+    raise KeyboardInterrupt
 
 
 # =========================================================
 # MENU
 # =========================================================
 def main():
+    signal.signal(signal.SIGINT, signal_handler)
+
     init_db()
 
     while True:
         print("\n1. Fetch Student Data")
         print("2. Exit")
 
-        choice = input("Choice: ").strip()
+        try:
+            choice = input("Choice: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting.")
+            break
 
         if choice == "1":
             pup_part2()
-
         elif choice == "2":
             break
 

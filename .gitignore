@@ -7,7 +7,7 @@ __pycache__/
 .env
 
 # SQLite database (optional if you don’t want to commit it)
-*.db
+*.db*
 
 # Logs
 *.log
