@@ -226,7 +226,6 @@ def pup_part1(session, conn):
         row = conn.execute(
             "SELECT value FROM crawl_progress WHERE key=?", (f"letter_{letter}",)
         ).fetchone()
-
         if row and row[0] == "done":
             continue
 
@@ -389,18 +388,14 @@ def parse_result_page(soup):
             joined = " ".join(cells)
 
             grand_total_match = re.search(
-                r"grand\s*total.*?(\d+)",
-                joined,
-                re.IGNORECASE
+                r"grand\s*total.*?(\d+)", joined, re.IGNORECASE
             )
 
             if grand_total_match:
                 data["grand_total"] = int(grand_total_match.group(1))
 
             grade_match = re.search(
-                r"result\s*grade.*?([A-Z][0-9]?)",
-                joined,
-                re.IGNORECASE
+                r"result\s*grade.*?([A-Z][0-9]?)", joined, re.IGNORECASE
             )
 
             if grade_match:
@@ -573,7 +568,8 @@ def main_menu():
                 pup_part1(session, conn)
 
             elif choice == "2":
-                fill_gaps(conn)
+                gap = int(input("Enter the maximum gap"))
+                fill_gaps(conn, gap)
 
             elif choice == "3":
                 pup_part2(session, conn)

@@ -352,11 +352,9 @@ def writer_thread(result_queue):
                     )
 
             finally:
-
                 result_queue.task_done()
 
     finally:
-
         conn.commit()
         conn.close()
         print(
@@ -451,6 +449,7 @@ def signal_handler(sig, frame):
 # MENU
 # =========================================================
 def main():
+
     signal.signal(signal.SIGINT, signal_handler)
 
     init_db()
