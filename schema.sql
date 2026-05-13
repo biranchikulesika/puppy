@@ -90,3 +90,23 @@ ON student_subject_marks(roll_no);
 
 CREATE INDEX IF NOT EXISTS idx_ssm_subject
 ON student_subject_marks(subject_code);
+
+-- =============================
+-- Weird / Supplemental Discovery
+-- =============================
+
+CREATE TABLE IF NOT EXISTS supplemental_discovery (
+    roll_no TEXT PRIMARY KEY,
+    candidate_name TEXT,
+    search_prefix TEXT NOT NULL,
+    discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_supp_prefix
+ON supplemental_discovery(search_prefix);
+
+
+CREATE TABLE IF NOT EXISTS supplemental_discovery_progress (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
